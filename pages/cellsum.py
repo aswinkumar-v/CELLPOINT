@@ -3,6 +3,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import calendar
 from datetime import date
+from io import BytesIO
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+
 
 # ======================================================
 # PAGE CONFIG
@@ -105,6 +111,134 @@ MRI_TARGETS = {
     "SAMSUNG": 20,
     "ONEPLUS": 25
 }
+# ======================================================
+# PDF GENERATOR – CELLSUM & MRI
+# ======================================================
+
+def generate_cellsum_mri_pdf(
+    cellsum_df, total_trgt, total_ach, total_pct,
+    run_rate, predicted_final, cellsum_carrier,
+    mri_df, mri_pct
+):
+
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=20,
+        leftMargin=20,
+        topMargin=20,
+        bottomMargin=20
+    )
+
+    styles = getSampleStyleSheet()
+
+    def color_status(text):
+        if "🟢" in text:
+           return Paragraph(f"<font color='green'>{text}</font>", styles["Normal"])
+        elif "🟡" in text:
+           return Paragraph(f"<font color='orange'>{text}</font>", styles["Normal"])
+        elif "🟠" in text:
+           return Paragraph(f"<font color='#d35400'>{text}</font>", styles["Normal"])
+        elif "🔴" in text:
+           return Paragraph(f"<font color='red'>{text}</font>", styles["Normal"])
+        else:
+           return Paragraph(text, styles["Normal"])
+
+    elements = []
+
+    # ---------------- HEADER ----------------
+    elements.append(Paragraph(
+        "<b>CELLPOINT – CELLSUM & MRI REPORT</b><br/>"
+        "Owner Intelligence Summary<br/><br/>",
+        styles["Title"]
+    ))
+
+    # ---------------- SUMMARY ----------------
+    elements.append(Paragraph(
+        f"<b>Total Target:</b> ₹{int(total_trgt):,}<br/>"
+        f"<b>Total Achieved:</b> ₹{int(total_ach):,}<br/>"
+        f"<b>Achievement %:</b> {total_pct:.1f}%<br/>"
+        f"<b>Run Rate:</b> ₹{run_rate/1e5:.2f} L / day<br/>"
+        f"<b>Predicted Final:</b> ₹{int(predicted_final):,}<br/>"
+        f"<b>CELLSUM Carrier:</b> {cellsum_carrier}<br/><br/>",
+        styles["Normal"]
+    ))
+
+    # ---------------- CELLSUM TABLE ----------------
+    elements.append(Paragraph("<b>Brand Performance Summary</b>", styles["Heading2"]))
+
+    table_data = [[
+        "Brand", "Target", "Achieved", "Achievement %", "Risk Level"
+    ]]
+
+    for _, r in cellsum_df.iterrows():
+        table_data.append([
+            r["BRAND NAME"],
+            f"{int(r['MONTHLY TARGET']):,}",
+            f"{int(r['ACHIEVEMENT']):,}",
+            f"{r['ACHIEVEMENT %']:.1f}%",
+            color_status(r["RISK LEVEL"])
+        ])
+
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.4, colors.black),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("ALIGN", (1,1), (-1,-1), "CENTER"),
+    ]))
+
+    elements.append(table)
+
+
+    # ---------------- MRI SECTION ----------------
+    elements.append(Spacer(1, 16))
+    elements.append(Paragraph(
+    "<b>🧠 MRI – Internal Brand-Mix Intelligence</b>",
+    styles["Heading2"]
+))
+
+    elements.append(Paragraph(
+    f"<b>Overall MRI Alignment:</b> "
+    f"{color_status(mri_risk(mri_pct)).text} "
+    f"({mri_pct:.1f}%)<br/><br/>",
+    styles["Normal"]
+))
+
+
+    mri_table = [[
+    "Brand", "MRI Target", "Achieved", "MRI %", "MRI Status"
+]]
+
+    for _, r in mri_df.iterrows():
+        mri_table.append([
+        r["BRAND NAME"],
+        f"{int(r['MRI TARGET']):,}",
+        f"{int(r['ACHIEVEMENT']):,}",
+        f"{r['MRI %']:.1f}%",
+        color_status(r["MRI STATUS"])
+    ])
+
+    tbl = Table(mri_table, repeatRows=1)
+    tbl.setStyle(TableStyle([
+    ("GRID", (0,0), (-1,-1), 0.4, colors.black),
+    ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+    ("FONTSIZE", (0,0), (-1,-1), 8),
+    ("ALIGN", (1,1), (-1,-1), "CENTER"),
+]))
+
+    elements.append(tbl)
+
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+    
+
+
+
 
 # ======================================================
 # MAIN LOGIC
@@ -176,6 +310,9 @@ if file_cp1 and file_cp2:
     cellsum_carrier = "CellPoint 1" if cp1_pct > cp2_pct else "CellPoint 2"
     c3.metric("💪 CELLSUM Carrier", cellsum_carrier)
 
+
+   
+
     # ======================================================
     # MRI – INTERNAL DETAILED ANALYSIS
     # ======================================================
@@ -211,6 +348,27 @@ if file_cp1 and file_cp2:
         mri_run = mri_ach / days_completed if days_completed > 0 else 0
         mri_pred = mri_ach + mri_run * days_remaining
         mri_pct = (mri_pred / mri_trgt) * 100
+
+
+         # ================= DOWNLOAD REPORT =================
+        st.markdown("## 📄 Download CELLSUM Intelligence Report")
+
+        st.download_button(
+        "⬇️ Download A4 CELLSUM Intelligence Report",
+        generate_cellsum_mri_pdf(
+            cellsum_df,
+            total_trgt,
+            total_ach,
+            total_pct,
+            run_rate,
+            predicted_final,
+            cellsum_carrier,
+            mri_df,
+            mri_pct
+        ),
+        "CELLPOINT_CELLSUM_MRI_Report.pdf",
+        "application/pdf"
+    )
 
         # -------- MRI SNAPSHOT --------
         st.markdown("### 🧠 MRI Snapshot")
